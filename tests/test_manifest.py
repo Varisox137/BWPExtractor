@@ -21,3 +21,14 @@ def test_manifest_roundtrip_and_cache_key(tmp_path: Path):
     entry = NpkEntry(0, 1, 0, 3, 3, 11, 22, 0, 0)
     key = record().cache_key(identity, entry, "converter-v1")
     assert "source-sha" in key and "11" in key and "22" in key
+
+
+def test_cache_key_preserves_field_boundaries():
+    entry = NpkEntry(0, 1, 0, 3, 3, 11, 22, 0, 0)
+    first = make_cache_key(
+        "a", 0, SourceIdentity("a", 10, "source:sha"), entry, "converter-v1"
+    )
+    second = make_cache_key(
+        "sha:a", 0, SourceIdentity("a", 10, "source"), entry, "converter-v1"
+    )
+    assert first != second

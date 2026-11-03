@@ -9,8 +9,12 @@ from bwp_extractor.sources import SourceIdentity
 
 def make_cache_key(archive: str, entry_index: int, source: SourceIdentity,
                    entry: NpkEntry, converter_version: str) -> str:
-    return ":".join((source.sha256, archive, str(entry_index),
-                     str(entry.packed_checksum), str(entry.raw_checksum), converter_version))
+    return json.dumps(
+        [source.sha256, archive, entry_index, entry.packed_checksum,
+         entry.raw_checksum, converter_version],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 @dataclass

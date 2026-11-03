@@ -1,6 +1,6 @@
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import shutil
 import tempfile
 from typing import Iterable
@@ -12,8 +12,10 @@ class OutputStore:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def path(self, relative: str) -> Path:
-        pure = PurePosixPath(relative)
-        if pure.is_absolute() or ".." in pure.parts or not pure.parts:
+        windows = PureWindowsPath(relative)
+        pure = PurePosixPath(relative.replace("\\", "/"))
+        if (windows.drive or windows.root or pure.is_absolute()
+                or ".." in pure.parts or not pure.parts):
             raise ValueError(f"Unsafe output path: {relative}")
         target = self.root.joinpath(*pure.parts).resolve()
         if self.root not in target.parents:
