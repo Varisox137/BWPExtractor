@@ -59,12 +59,16 @@ class ZipSource(ResourceSource):
     def archives(self) -> list[ArchiveSource]:
         with ZipFile(self.path) as package:
             names = sorted(n for n in package.namelist() if n.lower().endswith(".npk"))
+        if len(names) != len(set(names)):
+            raise ValueError("Duplicate NPK member names are not supported")
         return [ArchiveSource(self.path, n, n) for n in names]
 
 
 def open_source(path: Path) -> ResourceSource:
     if path.is_dir():
-        files = sorted(p for p in path.rglob("*") if p.suffix.lower() == ".npk")
+        files = sorted(
+            p for p in path.rglob("*") if p.is_file() and p.suffix.lower() == ".npk"
+        )
         return LocalSource([ArchiveSource(p, str(p.relative_to(path))) for p in files])
     if path.suffix.lower() == ".npk":
         return LocalSource([ArchiveSource(path, path.name)])

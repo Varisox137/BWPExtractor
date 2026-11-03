@@ -1,6 +1,8 @@
 from pathlib import Path
 from zipfile import ZipFile
 
+import pytest
+
 from bwp_extractor.sources import open_source
 
 
@@ -26,3 +28,21 @@ def test_directory_order_is_stable(tmp_path: Path):
     (tmp_path / "b.npk").write_bytes(b"b")
     (tmp_path / "a.npk").write_bytes(b"a")
     assert [a.relative_name for a in open_source(tmp_path).archives()] == ["a.npk", "b.npk"]
+
+
+def test_rejects_duplicate_zip_npk_members(tmp_path: Path):
+    archive = tmp_path / "duplicate.zip"
+    with ZipFile(archive, "w") as z:
+        z.writestr("assets/res/duplicate.npk", b"first")
+        with pytest.warns(UserWarning, match="Duplicate name"):
+            z.writestr("assets/res/duplicate.npk", b"second")
+
+    with pytest.raises(ValueError, match="Duplicate NPK member"):
+        open_source(archive).archives()
+
+
+def test_directory_ignores_npk_directories(tmp_path: Path):
+    (tmp_path / "directory.npk").mkdir()
+    (tmp_path / "file.npk").write_bytes(b"content")
+
+    assert [a.relative_name for a in open_source(tmp_path).archives()] == ["file.npk"]
