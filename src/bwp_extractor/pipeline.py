@@ -12,6 +12,7 @@ from bwp_extractor.names import NameResolver, curated_relative
 from bwp_extractor.npk import NpkEntry, NpkError, read_npk_index
 from bwp_extractor.output import OutputStore
 from bwp_extractor.sources import ArchiveSource, open_source
+from bwp_extractor.spine import build_spine_bundle
 from bwp_extractor.textures import TextureConverter
 
 
@@ -36,6 +37,43 @@ class ExtractionPipeline:
         self.cache_salt = sha256(config_data).hexdigest()
         self.issues: list[dict] = []
         self.duplicates: list[dict] = []
+        self.spine_issues: list[dict] = []
+
+    @staticmethod
+    def inspect(source_path: Path) -> tuple[list[EntryRecord], list[dict]]:
+        records = []
+        issues = []
+        for archive in open_source(source_path).archives():
+            try:
+                with archive.open() as stream:
+                    stream.seek(0, 2)
+                    size = stream.tell()
+                    stream.seek(0)
+                    index = read_npk_index(stream, size)
+                    for entry in index.entries:
+                        try:
+                            data = decode_entry(stream, entry)
+                            kind = detect_format(data)
+                            records.append(EntryRecord(
+                                archive.relative_name, entry.index, f"{entry.signature:08x}",
+                                Status.SUCCESS, NameStatus.UNRESOLVED, kind,
+                                None, None, None, sha256(data).hexdigest(), None,
+                            ))
+                        except UnsupportedEntryError as exc:
+                            records.append(EntryRecord(
+                                archive.relative_name, entry.index, f"{entry.signature:08x}",
+                                Status.UNSUPPORTED, NameStatus.UNRESOLVED,
+                                None, None, None, None, None, str(exc),
+                            ))
+                        except EntryDecodeError as exc:
+                            records.append(EntryRecord(
+                                archive.relative_name, entry.index, f"{entry.signature:08x}",
+                                Status.CORRUPT, NameStatus.UNRESOLVED,
+                                None, None, None, None, None, str(exc),
+                            ))
+            except NpkError as exc:
+                issues.append({"archive": archive.relative_name, "error": str(exc)})
+        return records, issues
 
     def _cache_valid(self, old: EntryRecord | None, identity: str) -> bool:
         if not old or old.status != Status.SUCCESS or old.cache_identity != identity or not old.raw_path:
@@ -159,6 +197,29 @@ class ExtractionPipeline:
                         self.store.path(record.curated_path).read_bytes()
                     ).hexdigest()
                 record.curated_sha256 = curated_digests[record.curated_path]
+        available = {}
+        for item in extracted:
+            resolved = resolver.resolve(item.entry.signature)
+            if resolved.path:
+                key = f"{item.archive.relative_name}:{item.entry.index}:{item.entry.signature:08x}"
+                record = records[key]
+                output = record.converted_path if item.kind in {
+                    ResourceKind.PNG, ResourceKind.KTX1, ResourceKind.KTX2, ResourceKind.DDS,
+                } else item.raw_path
+                if output:
+                    available[resolved.path] = self.store.path(output)
+        for item in extracted:
+            if item.kind != ResourceKind.ATLAS:
+                continue
+            resolved = resolver.resolve(item.entry.signature)
+            if not resolved.path:
+                continue
+            bundle = build_spine_bundle(
+                self.store, resolved.path,
+                self.store.path(item.raw_path).read_bytes(), available,
+            )
+            if bundle.missing:
+                self.spine_issues.append({"atlas": resolved.path, "missing": bundle.missing})
         ordered = [records[key] for key in sorted(records)]
         self.store.write_jsonl("manifest/entries.jsonl", [r.to_dict() for r in ordered])
         return ordered
