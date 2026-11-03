@@ -1,0 +1,8 @@
+.worktrees/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+samples/
+output/
+dist/
