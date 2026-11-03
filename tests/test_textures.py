@@ -1,3 +1,4 @@
+from io import BytesIO
 from pathlib import Path
 import struct
 import subprocess
@@ -10,11 +11,36 @@ from bwp_extractor.output import OutputStore
 from bwp_extractor.textures import TextureConverter
 
 
+def make_png(color=(255, 0, 0, 255)) -> bytes:
+    buffer = BytesIO()
+    Image.new("RGBA", (1, 1), color).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
 def test_png_is_copied_without_reencoding(tmp_path: Path):
     store = OutputStore(tmp_path)
-    raw, _ = store.write_bytes("raw/a.png", b"original-png-bytes")
+    original = make_png()
+    raw, _ = store.write_bytes("raw/a.png", original)
     output = TextureConverter(store).convert(raw, ResourceKind.PNG, "converted/a.png")
-    assert output.read_bytes() == b"original-png-bytes"
+    assert output.read_bytes() == original
+    assert raw.read_bytes() == original
+
+
+@pytest.mark.parametrize("damage", ["truncated", "crc"])
+def test_invalid_png_is_rejected_before_output(tmp_path: Path, damage: str):
+    data = bytearray(make_png())
+    if damage == "truncated":
+        del data[len(data) // 2:]
+    else:
+        data[29] ^= 1
+    store = OutputStore(tmp_path)
+    raw, _ = store.write_bytes("raw/a.png", bytes(data))
+
+    with pytest.raises(ValueError, match="Invalid PNG"):
+        TextureConverter(store).convert(raw, ResourceKind.PNG, "converted/a.png")
+
+    assert not (tmp_path / "converted/a.png").exists()
+    assert raw.read_bytes() == bytes(data)
 
 
 def test_uncompressed_dds_to_png(tmp_path: Path):
@@ -49,12 +75,14 @@ def install_fake_ktx_tools(monkeypatch: pytest.MonkeyPatch, commands: list[list[
 
     def fake_run(command, check, capture_output, text):
         assert check and capture_output and text
+        if command[1] == "--version":
+            return subprocess.CompletedProcess(command, 0, stdout="ktx-v1", stderr="")
         commands.append(command)
         if command[1] == "extract":
             if fail:
                 raise subprocess.CalledProcessError(1, command)
             Path(command[-1]).write_bytes(b"converted-png")
-        return subprocess.CompletedProcess(command, 0)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     monkeypatch.setattr("bwp_extractor.textures.subprocess.run", fake_run)
 
@@ -264,4 +292,15 @@ def test_truncated_etc_ktx1_data_is_rejected(tmp_path: Path):
 ])
 def test_unsupported_etc_ktx1_dimensions_are_rejected(tmp_path: Path, options):
     with pytest.raises(ValueError, match="^Unsupported ETC KTX1 dimensions$"):
+        convert_synthetic_ktx1(tmp_path, 0x8D64, solid_etc1(1), **options)
+
+
+@pytest.mark.parametrize("options", [
+    {"width": 0xFFFFFFFF, "height": 0xFFFFFFFF},
+    {"width": 16385, "height": 1},
+])
+def test_etc_dimensions_exceeding_memory_limits_are_rejected_before_allocation(
+    tmp_path: Path, options,
+):
+    with pytest.raises(ValueError, match="^ETC KTX1 dimensions exceed limits$"):
         convert_synthetic_ktx1(tmp_path, 0x8D64, solid_etc1(1), **options)

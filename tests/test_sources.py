@@ -46,3 +46,13 @@ def test_directory_ignores_npk_directories(tmp_path: Path):
     (tmp_path / "file.npk").write_bytes(b"content")
 
     assert [a.relative_name for a in open_source(tmp_path).archives()] == ["file.npk"]
+
+
+def test_nested_directory_archive_names_are_posix(tmp_path: Path):
+    nested = tmp_path / "patches" / "nested"
+    nested.mkdir(parents=True)
+    (nested / "high.npk").write_bytes(b"content")
+
+    assert [a.relative_name for a in open_source(tmp_path).archives()] == [
+        "patches/nested/high.npk",
+    ]

@@ -34,3 +34,18 @@ def test_rejects_unknown_compression():
 def test_rejects_encryption():
     with pytest.raises(UnsupportedEntryError):
         decode_entry(BytesIO(b"abc"), entry(b"abc", 3, encryption=2))
+
+
+def test_zlib_output_is_limited_to_declared_size_plus_one():
+    packed = zlib.compress(bytes(16 * 1024 * 1024))
+
+    with pytest.raises(EntryDecodeError, match="exceeds declared raw size"):
+        decode_entry(BytesIO(packed), entry(packed, 16))
+
+
+def test_entry_larger_than_explicit_limit_is_rejected_before_decoding():
+    from bwp_extractor.decode import MAX_ENTRY_SIZE
+
+    packed = zlib.compress(b"small")
+    with pytest.raises(EntryDecodeError, match="exceeds entry limit"):
+        decode_entry(BytesIO(packed), entry(packed, MAX_ENTRY_SIZE + 1))

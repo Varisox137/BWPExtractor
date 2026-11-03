@@ -7,6 +7,8 @@ KTX1_IDENTIFIER = b"\xabKTX 11\xbb\r\n\x1a\n"
 ETC1_RGB = 0x8D64
 ETC2_RGB = 0x9274
 ETC2_RGBA = 0x9278
+MAX_TEXTURE_DIMENSION = 16384
+MAX_TEXTURE_PIXEL_BYTES = 256 * 1024 * 1024
 
 MODIFIERS = (
     (2, 8), (5, 17), (9, 29), (13, 42),
@@ -199,6 +201,12 @@ def decode_blocks(data: bytes, width: int, height: int, alpha: bool, etc2: bool)
     return bytes(result)
 
 
+def is_etc_ktx1(data: bytes) -> bool:
+    if len(data) < 64 or data[:12] != KTX1_IDENTIFIER or data[12:16] != b"\x01\x02\x03\x04":
+        return False
+    return struct.unpack_from("<13I", data, 12)[4] in {ETC1_RGB, ETC2_RGB, ETC2_RGBA}
+
+
 def decode_etc_ktx1(data: bytes) -> Image.Image | None:
     if len(data) < 64 or data[:12] != KTX1_IDENTIFIER or data[12:16] != b"\x01\x02\x03\x04":
         return None
@@ -210,6 +218,9 @@ def decode_etc_ktx1(data: bytes) -> Image.Image | None:
     key_value_bytes = fields[12]
     if not width or not height or depth or array_elements or faces != 1:
         raise ValueError("Unsupported ETC KTX1 dimensions")
+    if (width > MAX_TEXTURE_DIMENSION or height > MAX_TEXTURE_DIMENSION
+            or width * height * 4 > MAX_TEXTURE_PIXEL_BYTES):
+        raise ValueError("ETC KTX1 dimensions exceed limits")
     offset = 64 + key_value_bytes
     if len(data) < offset + 4:
         raise ValueError("Truncated ETC KTX1 level")

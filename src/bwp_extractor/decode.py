@@ -4,6 +4,9 @@ import zlib
 from bwp_extractor.npk import NpkEntry
 
 
+MAX_ENTRY_SIZE = 512 * 1024 * 1024
+
+
 class EntryDecodeError(ValueError):
     pass
 
@@ -17,6 +20,8 @@ def decode_entry(stream: BinaryIO, entry: NpkEntry) -> bytes:
         raise UnsupportedEntryError(f"Unsupported encryption: {entry.encryption}")
     if entry.compression not in {0, 1}:
         raise UnsupportedEntryError(f"Unsupported compression: {entry.compression}")
+    if entry.raw_size > MAX_ENTRY_SIZE:
+        raise EntryDecodeError("Decoded entry exceeds entry limit")
     stream.seek(entry.offset)
     packed = stream.read(entry.packed_size)
     if len(packed) != entry.packed_size:
@@ -29,10 +34,12 @@ def decode_entry(stream: BinaryIO, entry: NpkEntry) -> bytes:
         return packed
     try:
         decoder = zlib.decompressobj()
-        raw = decoder.decompress(packed) + decoder.flush()
+        raw = decoder.decompress(packed, entry.raw_size + 1)
     except zlib.error as exc:
         raise EntryDecodeError("Invalid zlib stream") from exc
-    if not decoder.eof or decoder.unused_data:
+    if len(raw) > entry.raw_size:
+        raise EntryDecodeError("Decoded entry exceeds declared raw size")
+    if not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
         raise EntryDecodeError("Incomplete or trailing zlib data")
     if len(raw) != entry.raw_size:
         raise EntryDecodeError("Decoded entry length mismatch")

@@ -6,9 +6,10 @@ import pytest
 
 from bwp_extractor.cli import main
 from test_pipeline import npk_with
+from test_textures import make_png
 
 
-PNG = b"\x89PNG\r\n\x1a\n" + bytes(8)
+PNG = make_png()
 ATLAS = (b"hero.png\nsize: 4,4\nformat: RGBA8888\nfilter: Linear,Linear\n"
          b"repeat: none\nbody\n  bounds: 0,0,4,4\n")
 
@@ -23,7 +24,7 @@ def write_spine_source(tmp_path: Path, skeleton_extension: str = "skel"):
     source = tmp_path / "a.npk"
     source.write_bytes(npk_with([
         (1, ATLAS),
-        (2, PNG + b"image"),
+        (2, PNG),
         (3, b'{"bones":[]}' if skeleton_extension == "json" else b"skeleton"),
     ]))
     names = tmp_path / "names.json"
@@ -207,9 +208,9 @@ def test_extract_builds_complete_spine_bundle_from_raw_and_converted(
         "extract", str(source), "--output", str(output), "--names", str(names),
     ]) == 0
 
-    bundle = output / "curated/spine/hero"
+    bundle = output / "curated/spine/spine/hero"
     assert (bundle / "hero.atlas").read_bytes() == ATLAS
-    assert (bundle / "hero.png").read_bytes() == PNG + b"image"
+    assert (bundle / "hero.png").read_bytes() == PNG
     skeleton = b'{"bones":[]}' if skeleton_extension == "json" else b"skeleton"
     assert (bundle / f"hero.{skeleton_extension}").read_bytes() == skeleton
     assert captured["spine/hero.atlas"] == output / "raw/a.npk/00000001.atlas"
@@ -243,10 +244,47 @@ def test_cached_extraction_rebuilds_spine_bundle(tmp_path: Path):
     assert main(arguments) == 0
     converted = output / "converted/a.npk/00000002.png"
     before = converted.stat().st_mtime_ns
-    bundled_skeleton = output / "curated/spine/hero/hero.skel"
+    bundled_skeleton = output / "curated/spine/spine/hero/hero.skel"
     bundled_skeleton.unlink()
 
     assert main(arguments) == 0
 
     assert bundled_skeleton.read_bytes() == b"skeleton"
     assert converted.stat().st_mtime_ns == before
+
+
+def test_nested_windows_patch_name_matches_posix_archive_name(tmp_path: Path):
+    source = tmp_path / "input"
+    nested = source / "patches" / "nested"
+    nested.mkdir(parents=True)
+    (source / "base.npk").write_bytes(npk_with([(1, PNG + b"base")]))
+    (nested / "high.npk").write_bytes(npk_with([(1, PNG + b"patch")]))
+    names = tmp_path / "names.json"
+    names.write_text('{"00000001": "cards/a.png"}', encoding="utf-8")
+    output = tmp_path / "out"
+
+    assert main([
+        "extract", str(source), "--output", str(output), "--names", str(names),
+        "--patch", r"patches\nested\high.npk",
+    ]) == 0
+
+    assert (output / "cards/cards/a.png").read_bytes() == PNG + b"patch"
+    report = json.loads((output / "reports/run.json").read_text(encoding="utf-8"))
+    assert report["patch_issues"] == []
+
+
+def test_unmatched_patch_name_is_reported_and_fails(tmp_path: Path):
+    source = tmp_path / "a.npk"
+    source.write_bytes(npk_with([(1, PNG)]))
+    output = tmp_path / "out"
+
+    assert main([
+        "extract", str(source), "--output", str(output),
+        "--patch", r"missing\nested.npk",
+    ]) == 1
+
+    report = json.loads((output / "reports/run.json").read_text(encoding="utf-8"))
+    assert report["patch_issues"] == [{
+        "patch": "missing/nested.npk",
+        "error": "Patch archive not found",
+    }]

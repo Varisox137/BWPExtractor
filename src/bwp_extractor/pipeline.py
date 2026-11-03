@@ -31,11 +31,12 @@ class ExtractionPipeline:
         self.store = OutputStore(output)
         self.output = output
         self.names = names
-        self.patch_priority = patch_priority or []
+        self.patch_priority = [name.replace("\\", "/") for name in (patch_priority or [])]
         name_data = names.read_bytes() if names else b""
         config_data = name_data + "\0".join(self.patch_priority).encode("utf-8")
         self.cache_salt = sha256(config_data).hexdigest()
         self.issues: list[dict] = []
+        self.patch_issues: list[dict] = []
         self.duplicates: list[dict] = []
         self.spine_issues: list[dict] = []
 
@@ -103,10 +104,17 @@ class ExtractionPipeline:
         records: dict[str, EntryRecord] = {}
         seen_signatures: dict[int, str] = {}
         archives = open_source(source_path).archives()
+        archive_names = {archive.relative_name for archive in archives}
+        self.patch_issues = [
+            {"patch": name, "error": "Patch archive not found"}
+            for name in self.patch_priority if name not in archive_names
+        ]
         priority = {name: i + 1 for i, name in enumerate(self.patch_priority)}
         archives.sort(key=lambda a: (priority.get(a.relative_name, 0), a.relative_name))
+        identities = {}
         for archive in archives:
             identity = archive.identity()
+            identities[archive.relative_name] = identity
             try:
                 with archive.open() as stream:
                     index = read_npk_index(stream, identity.size)
@@ -117,12 +125,20 @@ class ExtractionPipeline:
                                 "base": seen_signatures[entry.signature], "patch": key})
                         else:
                             seen_signatures[entry.signature] = key
+                        old = previous.get(key)
+                        converter_version = TextureConverter.VERSION
+                        if old and old.kind and old.raw_path:
+                            try:
+                                converter_version = converter.cache_identity(
+                                    old.kind, self.store.path(old.raw_path),
+                                )
+                            except (OSError, RuntimeError, subprocess.CalledProcessError):
+                                converter_version = None
                         cache_identity = make_cache_key(
                             archive.relative_name, entry.index, identity, entry,
-                            f"{TextureConverter.VERSION}:{self.cache_salt}",
+                            f"{converter_version or TextureConverter.VERSION}:{self.cache_salt}",
                         )
-                        old = previous.get(key)
-                        if self._cache_valid(old, cache_identity):
+                        if converter_version is not None and self._cache_valid(old, cache_identity):
                             records[key] = old
                             cached.add(key)
                             data = self.store.path(old.raw_path).read_bytes()
@@ -173,6 +189,12 @@ class ExtractionPipeline:
                 try:
                     if key not in cached:
                         converter.convert(self.store.path(item.raw_path), item.kind, converted)
+                    record.cache_identity = make_cache_key(
+                        item.archive.relative_name, item.entry.index,
+                        identities[item.archive.relative_name], item.entry,
+                        f"{converter.cache_identity(item.kind, self.store.path(item.raw_path))}:"
+                        f"{self.cache_salt}",
+                    )
                     record.converted_path = converted
                     record.converted_sha256 = sha256(
                         self.store.path(converted).read_bytes()

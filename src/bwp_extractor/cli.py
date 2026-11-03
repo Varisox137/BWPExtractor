@@ -43,9 +43,10 @@ def main(argv=None) -> int:
         "kinds": dict(Counter(r.kind.value for r in records if r.kind)),
         "failures": [r.to_dict() for r in records if r.status != "success"],
         "archive_issues": pipeline.issues,
+        "patch_issues": pipeline.patch_issues,
         "spine_issues": pipeline.spine_issues,
         "duplicates": pipeline.duplicates,
         "unresolved": sum(r.name_status == "unresolved" for r in records),
     })
     failed = counts["unsupported"] or counts["corrupt"] or counts["conversion_failed"]
-    return 1 if failed or pipeline.issues else 0
+    return 1 if failed or pipeline.issues or pipeline.patch_issues else 0
