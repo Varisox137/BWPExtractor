@@ -36,7 +36,11 @@ class NameResolver:
         safe = self.safe(path)
         if safe:
             for candidate in {path, safe}:
-                self._paths[self.signature(candidate)] = (safe, source)
+                signature = self.signature(candidate)
+                existing = self._paths.get(signature)
+                if source == "candidate" and existing and existing[1] == "mapping":
+                    continue
+                self._paths[signature] = (safe, source)
 
     def load_mapping(self, mapping: dict[str, str]) -> None:
         for signature, path in mapping.items():
@@ -57,7 +61,10 @@ class NameResolver:
 
 
 def curated_relative(path: str) -> str:
-    pure = PurePosixPath(path)
+    safe = NameResolver.safe(path)
+    if safe is None:
+        raise ValueError(f"Unsafe curated path: {path}")
+    pure = PurePosixPath(safe)
     lowered = [part.lower() for part in pure.parts]
     category = "cards" if any("card" in p for p in lowered) else \
                "ui" if any(p in {"gui", "ui"} for p in lowered) else "other"

@@ -19,6 +19,17 @@ def test_loads_explicit_mapping():
     assert resolved.source == "mapping"
 
 
+def test_mapping_takes_priority_over_later_candidate_with_same_signature():
+    resolver = NameResolver()
+    candidate = "image/cards/1001.png"
+    signature = resolver.signature(candidate)
+    resolver.load_mapping({f"{signature:08X}": "gui/mapped.png"})
+    resolver.add_path(candidate)
+    resolved = resolver.resolve(signature)
+    assert resolved.path == "gui/mapped.png"
+    assert resolved.source == "mapping"
+
+
 def test_rejects_invalid_mapping_signature():
     resolver = NameResolver()
     with pytest.raises(ValueError, match="Invalid signature"):
@@ -45,3 +56,18 @@ def test_curated_categories():
     assert curated_relative("image/cards/1001.png").startswith("cards/")
     assert curated_relative("gui/login/a.png").startswith("ui/")
     assert curated_relative("misc/a.png").startswith("other/")
+
+
+def test_curated_normalizes_windows_separators():
+    assert curated_relative(r"gui\login\a.png") == "ui/gui/login/a.png"
+
+
+@pytest.mark.parametrize("path", [
+    "/escape.png",
+    "../escape.png",
+    r"..\escape.png",
+    r"C:\escape.png",
+])
+def test_curated_rejects_unsafe_paths(path: str):
+    with pytest.raises(ValueError, match="Unsafe curated path"):
+        curated_relative(path)
