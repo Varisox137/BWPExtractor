@@ -31,6 +31,8 @@ class EntryRecord:
     raw_sha256: str | None
     error: str | None
     cache_identity: str | None = None
+    converted_sha256: str | None = None
+    curated_sha256: str | None = None
 
     @property
     def key(self) -> str:

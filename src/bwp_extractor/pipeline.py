@@ -40,11 +40,19 @@ class ExtractionPipeline:
     def _cache_valid(self, old: EntryRecord | None, identity: str) -> bool:
         if not old or old.status != Status.SUCCESS or old.cache_identity != identity or not old.raw_path:
             return False
-        for relative in (old.raw_path, old.converted_path, old.curated_path):
-            if relative and not self.store.path(relative).is_file():
+        outputs = (
+            (old.raw_path, old.raw_sha256),
+            (old.converted_path, old.converted_sha256),
+            (old.curated_path, old.curated_sha256),
+        )
+        for relative, expected in outputs:
+            if not relative:
+                continue
+            path = self.store.path(relative)
+            if (not expected or not path.is_file()
+                    or sha256(path.read_bytes()).hexdigest() != expected):
                 return False
-        raw = self.store.path(old.raw_path)
-        return sha256(raw.read_bytes()).hexdigest() == old.raw_sha256
+        return True
 
     def run(self, source_path: Path) -> list[EntryRecord]:
         previous = Manifest.load(self.output / "manifest/entries.jsonl")
@@ -53,6 +61,7 @@ class ExtractionPipeline:
             resolver.load_mapping(json.loads(self.names.read_text(encoding="utf-8")))
         converter = TextureConverter(self.store)
         extracted: list[ExtractedEntry] = []
+        cached: set[str] = set()
         records: dict[str, EntryRecord] = {}
         seen_signatures: dict[int, str] = {}
         archives = open_source(source_path).archives()
@@ -77,6 +86,12 @@ class ExtractionPipeline:
                         old = previous.get(key)
                         if self._cache_valid(old, cache_identity):
                             records[key] = old
+                            cached.add(key)
+                            data = self.store.path(old.raw_path).read_bytes()
+                            resolver.harvest(data)
+                            extracted.append(ExtractedEntry(
+                                archive, entry, old.kind, old.raw_path, old.raw_sha256,
+                            ))
                             continue
                         try:
                             data = decode_entry(stream, entry)
@@ -108,6 +123,9 @@ class ExtractionPipeline:
         for item in extracted:
             key = f"{item.archive.relative_name}:{item.entry.index}:{item.entry.signature:08x}"
             record = records[key]
+            record.name_status = NameStatus.UNRESOLVED
+            record.curated_path = None
+            record.curated_sha256 = None
             resolved = resolver.resolve(item.entry.signature)
             if resolved.path:
                 record.name_status = NameStatus.RESOLVED
@@ -115,18 +133,32 @@ class ExtractionPipeline:
             if item.kind in {ResourceKind.PNG, ResourceKind.KTX1, ResourceKind.KTX2, ResourceKind.DDS}:
                 converted = f"converted/{item.archive.relative_name}/{item.entry.signature:08x}.png"
                 try:
-                    converter.convert(self.store.path(item.raw_path), item.kind, converted)
+                    if key not in cached:
+                        converter.convert(self.store.path(item.raw_path), item.kind, converted)
                     record.converted_path = converted
+                    record.converted_sha256 = sha256(
+                        self.store.path(converted).read_bytes()
+                    ).hexdigest()
                     if record.curated_path:
                         record.curated_path = str(PurePosixPath(record.curated_path).with_suffix(".png"))
                         self.store.link_or_copy(self.store.path(converted), record.curated_path)
                 except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
                     record.status = Status.CONVERSION_FAILED
                     record.converted_path = None
+                    record.converted_sha256 = None
                     record.curated_path = None
+                    record.curated_sha256 = None
                     record.error = str(exc)
             elif record.curated_path:
                 self.store.link_or_copy(self.store.path(item.raw_path), record.curated_path)
+        curated_digests: dict[str, str] = {}
+        for record in records.values():
+            if record.status == Status.SUCCESS and record.curated_path:
+                if record.curated_path not in curated_digests:
+                    curated_digests[record.curated_path] = sha256(
+                        self.store.path(record.curated_path).read_bytes()
+                    ).hexdigest()
+                record.curated_sha256 = curated_digests[record.curated_path]
         ordered = [records[key] for key in sorted(records)]
         self.store.write_jsonl("manifest/entries.jsonl", [r.to_dict() for r in ordered])
         return ordered
