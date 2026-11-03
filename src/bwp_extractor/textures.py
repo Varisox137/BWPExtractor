@@ -5,12 +5,13 @@ import tempfile
 
 from PIL import Image
 
+from bwp_extractor.etc import decode_etc_ktx1
 from bwp_extractor.models import ResourceKind
 from bwp_extractor.output import OutputStore
 
 
 class TextureConverter:
-    VERSION = "texture-v1"
+    VERSION = "texture-v2"
 
     def __init__(self, store: OutputStore):
         self.store = store
@@ -20,6 +21,13 @@ class TextureConverter:
             return self.store.link_or_copy(raw_path, relative_output)[0]
         if kind == ResourceKind.DDS:
             with Image.open(raw_path) as image:
+                buffer = tempfile.SpooledTemporaryFile()
+                image.save(buffer, "PNG")
+                buffer.seek(0)
+                return self.store.write_bytes(relative_output, buffer.read())[0]
+        if kind == ResourceKind.KTX1:
+            image = decode_etc_ktx1(raw_path.read_bytes())
+            if image is not None:
                 buffer = tempfile.SpooledTemporaryFile()
                 image.save(buffer, "PNG")
                 buffer.seek(0)

@@ -74,7 +74,7 @@ bwp-extractor extract INPUT --output DIR [--platform android]
 - `NpkReader`：读取头和索引，检查容器类型、索引大小、偏移和条目边界；逐项读取，不载入整个 NPK。
 - `EntryDecoder`：处理已验证的存储与 zlib 条目。结合索引标志、上下层长度和内容魔数判断，但任何解压失败都显式报告。加密、未知压缩和未知索引变体标记为不支持。
 - `FormatDetector`：以魔数和专用解析器识别 PNG、KTX1/KTX2、DDS、Spine atlas/skel/json 及文本；不依赖 Magika。PVR、ASTC 等只有在本项目样本中出现并验证后才加入转换支持。
-- `TextureConverter`：PNG 原样保留；KTX1/KTX2 使用检测到的 KTX-Software；DDS 由独立适配器处理。外部工具用参数数组调用，不经过 shell 拼接。
+- `TextureConverter`：PNG 原样保留；KTX1/KTX2 使用检测到的 KTX-Software；真实 APK 验收确认其不能直接输出 ETC1/ETC2 PNG，因此这两类 KTX1（含 ETC2/EAC alpha）由本地解码器处理；DDS 由独立适配器处理。外部工具用参数数组调用，不经过 shell 拼接。
 - `SpineAssembler`：根据 atlas 引用及 skel/json 关系组织完整资源组，保留相对路径；缺文件时保留已得资源并报告不完整组。
 - `NameResolver`：依次使用内嵌文件名清单、用户显式映射、从已解码文本收集的候选路径哈希。未命中项使用稳定哈希名并标记 `unresolved`。不执行游戏脚本，不要求解密 `script.npk` 才能提取图片。
 - `ManifestWriter`：输出逐条来源、转换、命名和错误记录。

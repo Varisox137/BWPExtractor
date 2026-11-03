@@ -101,3 +101,57 @@ def test_failed_ktx_conversion_preserves_existing_output(tmp_path: Path, monkeyp
         TextureConverter(store).convert(raw, ResourceKind.KTX2, "converted/a.png")
 
     assert target.read_bytes() == b"existing-output"
+
+
+def make_ktx1(internal_format: int, payload: bytes) -> bytes:
+    header = bytearray(64)
+    header[:12] = b"\xabKTX 11\xbb\r\n\x1a\n"
+    struct.pack_into(
+        "<13I", header, 12,
+        0x04030201, 0, 1, 0, internal_format, 0x1908, 4, 4, 0, 0, 1, 1, 0,
+    )
+    return bytes(header) + struct.pack("<I", len(payload)) + payload
+
+
+def make_alpha_block(base: int, multiplier: int, table: int, selector: int) -> bytes:
+    indices = sum(selector << (3 * (15 - pixel)) for pixel in range(16))
+    return bytes([base, (multiplier << 4) | table]) + indices.to_bytes(6, "big")
+
+
+def convert_synthetic_ktx1(tmp_path: Path, internal_format: int, payload: bytes) -> Image.Image:
+    store = OutputStore(tmp_path)
+    raw, _ = store.write_bytes("raw/a.ktx", make_ktx1(internal_format, payload))
+    output = TextureConverter(store).convert(raw, ResourceKind.KTX1, "converted/a.png")
+    return Image.open(output)
+
+
+def test_etc1_ktx1_is_decoded_without_ktx_cli(tmp_path: Path):
+    block = bytes([0x11, 0x33, 0x44, 0, 0, 0, 0, 0])
+    with convert_synthetic_ktx1(tmp_path, 0x8D64, block) as image:
+        assert image.mode == "RGBA"
+        assert image.size == (4, 4)
+        assert image.getpixel((0, 0)) == (19, 53, 70, 255)
+        assert len(image.getcolors(16)) == 1
+
+
+def test_etc2_t_mode_and_eac_alpha_are_decoded(tmp_path: Path):
+    alpha = make_alpha_block(100, 1, 13, 4)
+    color = bytes([0xFB, 0x23, 0x45, 0x62, 0, 0, 0, 0])
+    with convert_synthetic_ktx1(tmp_path, 0x9278, alpha + color) as image:
+        assert image.getpixel((0, 0)) == (255, 34, 51, 100)
+        assert len(image.getcolors(16)) == 1
+
+
+def test_etc2_h_mode_is_decoded(tmp_path: Path):
+    color = bytes([0x1B, 0xF3, 0x45, 0x62, 0, 0, 0, 0])
+    with convert_synthetic_ktx1(tmp_path, 0x9274, color) as image:
+        assert image.getpixel((0, 0)) == (255, 255, 54, 255)
+        assert len(image.getcolors(16)) == 1
+
+
+def test_etc2_planar_mode_is_decoded(tmp_path: Path):
+    color = bytes.fromhex("2221041ffdcf985a")
+    with convert_synthetic_ktx1(tmp_path, 0x9274, color) as image:
+        assert image.getpixel((0, 0)) == (69, 32, 130, 255)
+        assert image.getpixel((3, 0)) == (62, 198, 206, 255)
+        assert image.getpixel((0, 3)) == (200, 154, 111, 255)
