@@ -87,27 +87,31 @@ def decode_regular(block: bytes, x: int, y: int) -> tuple[int, int, int]:
     subblock = (y >= 2) if flip else (x >= 2)
     selected = selector(block, x, y)
     small, large = MODIFIERS[tables[subblock]]
-    modifier = (small, large, -large, -small)[selected]
+    modifier = (small, large, -small, -large)[selected]
     return tuple(clamp(value + modifier) for value in colors[subblock])
 
 
-def th_colors(block: bytes) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-    first = (
-        expand4(((block[0] >> 3) & 3) | ((block[0] & 3) << 2)),
-        expand4(block[1] >> 4),
-        expand4(block[1] & 15),
+def th_colors(block: bytes, h_mode: bool) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+    first_raw = (
+        ((block[0] & 0x18) >> 1) | (block[0] & 3),
+        block[1] >> 4,
+        block[1] & 15,
     )
-    second = (
-        expand4(block[2] >> 4),
-        expand4(block[2] & 15),
-        expand4(block[3] >> 4),
-    )
-    distance = DISTANCES[((block[3] & 12) >> 1) | (block[3] & 1)]
-    return first, second, distance
+    second_raw = (block[2] >> 4, block[2] & 15, block[3] >> 4)
+    first = tuple(expand4(value) for value in first_raw)
+    second = tuple(expand4(value) for value in second_raw)
+    distance_index = (block[3] & 12) >> 1
+    if h_mode:
+        color0 = (first_raw[0] << 8) | (first_raw[1] << 4) | first_raw[2]
+        color1 = (second_raw[0] << 8) | (second_raw[1] << 4) | second_raw[2]
+        distance_index |= color0 >= color1
+    else:
+        distance_index |= block[3] & 1
+    return first, second, DISTANCES[distance_index]
 
 
 def decode_t(block: bytes, x: int, y: int) -> tuple[int, int, int]:
-    first, second, distance = th_colors(block)
+    first, second, distance = th_colors(block, False)
     colors = (
         first,
         tuple(clamp(value + distance) for value in second),
@@ -118,7 +122,7 @@ def decode_t(block: bytes, x: int, y: int) -> tuple[int, int, int]:
 
 
 def decode_h(block: bytes, x: int, y: int) -> tuple[int, int, int]:
-    first, second, distance = th_colors(block)
+    first, second, distance = th_colors(block, True)
     colors = (
         tuple(clamp(value + distance) for value in first),
         tuple(clamp(value - distance) for value in first),

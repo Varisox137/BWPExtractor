@@ -16,7 +16,7 @@
 uv sync
 ```
 
-PNG、DDS 以及 ETC1/ETC2 KTX1 可直接处理。其他 KTX1/KTX2 纹理需要安装 KTX-Software，并确保 `ktx`（或 `ktx.exe`）和 `ktx2ktx2`（或 `ktx2ktx2.exe`）位于 `PATH`；缺少工具或转换失败会写入报告并产生非零退出码。
+PNG、DDS 以及 ETC1 RGB、ETC2 RGB、ETC2/EAC RGBA 这三类 KTX1 可直接处理，不支持其他 ETC 变体。其余 KTX1/KTX2 纹理需要安装 KTX-Software，并确保 `ktx`（或 `ktx.exe`）和 `ktx2ktx2`（或 `ktx2ktx2.exe`）位于 `PATH`；缺少工具或转换失败会写入报告并产生非零退出码。
 
 ## 使用
 

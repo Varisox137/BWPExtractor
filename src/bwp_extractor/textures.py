@@ -11,7 +11,7 @@ from bwp_extractor.output import OutputStore
 
 
 class TextureConverter:
-    VERSION = "texture-v2"
+    VERSION = "texture-v3"
 
     def __init__(self, store: OutputStore):
         self.store = store
