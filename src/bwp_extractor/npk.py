@@ -39,9 +39,11 @@ def read_npk_index(stream: BinaryIO, stream_size: int) -> NpkIndex:
         raise CorruptNpkError("Truncated NPK header")
     if header[:4] != b"NXPK":
         raise UnsupportedNpkError("Only verified NXPK input is supported")
-    count, _var1, _encrypt_mode, _hash_mode, index_offset = struct.unpack(
+    count, var1, encrypt_mode, hash_mode, index_offset = struct.unpack(
         "<5I", header[4:]
     )
+    if (var1, encrypt_mode, hash_mode) != (0, 0, 0):
+        raise UnsupportedNpkError("Unsupported NXPK header mode")
     index_size = count * 28
     if index_offset < 24 or index_offset + index_size > stream_size:
         raise CorruptNpkError("Index lies outside the archive")
