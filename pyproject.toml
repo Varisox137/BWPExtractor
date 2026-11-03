@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Static, read-only art extractor for legally obtained yysbwp resources"
 requires-python = ">=3.12"
 dependencies = [
+    "mmh3>=5.3.1",
     "pillow>=13.0.0",
 ]
 
